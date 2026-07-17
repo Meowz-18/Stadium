@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+venv/
+.venv/
+
+# Environment variables
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Build outputs
+dist/
+build/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# IDE & Agent Config
+.gemini/
+.vscode/
+.idea/
+.cursor/
+.agents/
+.jetro/
+.mcp.json
+.windsurfrules
+AGENT.md
+CLAUDE.md
+.github/copilot-instructions.md
+
+# Cache
+__pycache__/
+.pytest_cache/
+
+# Submission artifacts
+*.zip
+temp_clean/
+
+# Lock files
+package-lock.json
