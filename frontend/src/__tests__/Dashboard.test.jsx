@@ -51,4 +51,21 @@ describe('Dashboard', () => {
     expect(screen.getByText('Zone Distribution')).toBeInTheDocument();
     expect(screen.getByText('Zone Comparison')).toBeInTheDocument();
   });
+
+  it('renders AI Ops Briefing button', () => {
+    renderDashboard();
+    expect(screen.getByText('AI Ops Briefing')).toBeInTheDocument();
+  });
+
+  it('displays operational briefing panel after clicking Ops Briefing button', async () => {
+    renderDashboard();
+    const opsBtn = screen.getByText('AI Ops Briefing');
+    fireEvent.click(opsBtn);
+
+    // Should render the fallback operational briefing title and section
+    expect(await screen.findByText('AI Operational Briefing')).toBeInTheDocument();
+    expect(screen.getByText('Situational Briefing')).toBeInTheDocument();
+    expect(screen.getByText(/Overall operational risk level/i)).toBeInTheDocument();
+    expect(screen.getByText(/steward/i)).toBeInTheDocument();
+  });
 });
