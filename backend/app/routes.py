@@ -147,12 +147,22 @@ async def navigate_zones(request: Request, body: NavigationQuery):
 async def analyze_crowd_density(request: Request, body: CrowdQuery):
     """Analyze crowd density and generate AI recommendations.
 
-    Delegates zone analysis to the service layer and optionally
-    enriches recommendations with Gemini AI insights.
+    Delegates zone analysis to the service layer and enriches
+    recommendations with Gemini AI insights, memoized in the LRU cache.
     """
     model = _get_model(request)
 
     zones_data = [z.model_dump() for z in body.zones]
+    zones_summary_str = ",".join(f"{z['zone_id']}:{z['density']}" for z in zones_data)
+    cache_key = hashlib.sha256(
+        f"crowd:{body.venue_id}:{zones_summary_str}".encode()
+    ).hexdigest()
+
+    cached = response_cache.get(cache_key)
+    if cached and isinstance(cached, dict):
+        logger.info("Cache hit for crowd hash: %s", cache_key)
+        return cached
+
     result = analyze_crowd(body.venue_id, zones_data)
 
     # Generate AI recommendation for crowd management
@@ -186,6 +196,7 @@ async def analyze_crowd_density(request: Request, body: CrowdQuery):
             "for incoming fan flow."
         )
 
+    response_cache.put(cache_key, result)
     return result
 
 
@@ -195,9 +206,18 @@ async def plan_transport(request: Request, body: TransportQuery):
     """Plan transportation routes to the stadium.
 
     Returns multi-modal route options with CO₂ estimates and
-    AI-generated recommendations.
+    AI-generated recommendations, cached for performance.
     """
     model = _get_model(request)
+
+    cache_key = hashlib.sha256(
+        f"transport:{body.origin}:{body.venue_id}".encode()
+    ).hexdigest()
+
+    cached = response_cache.get(cache_key)
+    if cached and isinstance(cached, dict):
+        logger.info("Cache hit for transport hash: %s", cache_key)
+        return cached
 
     routes = estimate_routes(body.origin, body.venue_id)
 
@@ -224,12 +244,14 @@ async def plan_transport(request: Request, body: TransportQuery):
     from app.services import VENUES
     venue = VENUES.get(body.venue_id, VENUES["lusail"])
 
-    return {
+    response_data = {
         "origin": body.origin,
         "destination": venue["name"],
         "routes": routes,
         "ai_recommendation": ai_rec,
     }
+    response_cache.put(cache_key, response_data)
+    return response_data
 
 
 @router.post("/sustainability", response_model=SustainabilityResponse)
@@ -238,9 +260,18 @@ async def assess_sustainability(request: Request, body: SustainabilityInput):
     """Calculate sustainability score and generate reduction strategies.
 
     Delegates scoring to the service layer and enriches with
-    Gemini AI recommendations.
+    Gemini AI recommendations, cached in LRU.
     """
     model = _get_model(request)
+
+    cache_key = hashlib.sha256(
+        f"sus:{body.venue_id}:{body.waste_kg}:{body.energy_kwh}:{body.water_liters}:{body.recycling_rate}:{body.attendance}".encode()
+    ).hexdigest()
+
+    cached = response_cache.get(cache_key)
+    if cached and isinstance(cached, dict):
+        logger.info("Cache hit for sustainability hash: %s", cache_key)
+        return cached
 
     result = calculate_sustainability(
         venue_id=body.venue_id,
@@ -271,6 +302,7 @@ async def assess_sustainability(request: Request, body: SustainabilityInput):
             "and implementing a digital ticketing system to reduce paper waste."
         )
 
+    response_cache.put(cache_key, result)
     return result
 
 
