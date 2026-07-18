@@ -15,6 +15,7 @@ const features = [
   { icon: MessageSquare, title: 'AI Assistant', desc: 'Multilingual Gemini-powered chatbot for instant answers about stadium, matches, and services.', path: '/assistant', color: 'gold' },
   { icon: Bus, title: 'Transport Planner', desc: 'Multi-modal route planning with CO₂ comparison, live transit info, and calendar sync.', path: '/transport', color: 'blue' },
   { icon: Leaf, title: 'Sustainability', desc: 'Track venue sustainability metrics, generate AI reduction strategies, and monitor green goals.', path: '/sustainability', color: 'teal' },
+  { icon: Shield, title: 'Operational Briefing', desc: 'AI-generated operational intelligence and real-time decision support for venue operations and security.', path: '/dashboard', color: 'purple' },
 ];
 
 const stats = [

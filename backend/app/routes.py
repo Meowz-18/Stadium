@@ -290,10 +290,12 @@ async def operational_briefing(request: Request, body: OperationsQuery):
         f":{body.critical_zone_count}:{body.weather}".encode()
     ).hexdigest()
 
-    cached_briefing = response_cache.get(cache_key)
-    if cached_briefing:
+    cached = response_cache.get(cache_key)
+    if cached:
         logger.info("Cache hit for operations hash: %s", cache_key)
-        # Reparse cached fallback structure
+        if isinstance(cached, dict):
+            return cached
+        # Backward compatibility for string cached briefings
         fallback = build_operations_fallback(
             body.venue_id, body.event_phase,
             body.crowd_density_avg, body.critical_zone_count,
@@ -301,7 +303,7 @@ async def operational_briefing(request: Request, body: OperationsQuery):
         return {
             "venue_id": body.venue_id,
             "event_phase": body.event_phase,
-            "briefing": cached_briefing,
+            "briefing": str(cached),
             "decision_recommendations": fallback["decision_recommendations"],
             "risk_level": fallback["risk_level"],
         }
@@ -314,7 +316,6 @@ async def operational_briefing(request: Request, body: OperationsQuery):
         )
         response = await model.generate_content_async(prompt)
         briefing_text = response.text
-        response_cache.put(cache_key, briefing_text)
 
         # Extract risk level from AI response, default to heuristic
         risk = "Low"
@@ -325,8 +326,7 @@ async def operational_briefing(request: Request, body: OperationsQuery):
         elif body.crowd_density_avg > 50:
             risk = "Moderate"
 
-        logger.info("Gemini operations briefing generated for hash: %s", cache_key)
-        return {
+        response_data = {
             "venue_id": body.venue_id,
             "event_phase": body.event_phase,
             "briefing": briefing_text,
@@ -335,6 +335,9 @@ async def operational_briefing(request: Request, body: OperationsQuery):
             ],
             "risk_level": risk,
         }
+        response_cache.put(cache_key, response_data)
+        logger.info("Gemini operations briefing generated for hash: %s", cache_key)
+        return response_data
 
     except Exception as exc:
         logger.warning(
@@ -344,12 +347,13 @@ async def operational_briefing(request: Request, body: OperationsQuery):
             body.venue_id, body.event_phase,
             body.crowd_density_avg, body.critical_zone_count,
         )
-        response_cache.put(cache_key, fallback["briefing"])
-        return {
+        response_data = {
             "venue_id": body.venue_id,
             "event_phase": body.event_phase,
             **fallback,
         }
+        response_cache.put(cache_key, response_data)
+        return response_data
 
 
 @router.get("/health", response_model=HealthResponse)

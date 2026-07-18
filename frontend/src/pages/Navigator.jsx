@@ -300,22 +300,23 @@ const Navigator = React.memo(() => {
             {/* Zone List */}
             <div className="mt-6 pt-6 border-t border-slate-200/50">
               <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-3">All Zones</p>
-              <div className="space-y-2" role="list" aria-label="Stadium zones">
+              <ul className="space-y-2" aria-label="Stadium zones">
                 {zones.map((zone) => (
-                  <button
-                    key={zone.id}
-                    onClick={() => selectZone(zone.id)}
-                    className={`w-full flex items-center justify-between p-3 rounded-xl text-left text-sm font-medium transition-all focus-ring ${
-                      selectedZone?.id === zone.id
-                        ? 'bg-slate-900 text-white shadow-md'
-                        : 'text-slate-600 hover:bg-slate-100'
-                    }`}
-                  >
-                    <span>{zone.name}</span>
-                    <ArrowRight size={14} aria-hidden="true" />
-                  </button>
+                  <li key={zone.id}>
+                    <button
+                      onClick={() => selectZone(zone.id)}
+                      className={`w-full flex items-center justify-between p-3 rounded-xl text-left text-sm font-medium transition-all focus-ring ${
+                        selectedZone?.id === zone.id
+                          ? 'bg-slate-900 text-white shadow-md'
+                          : 'text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      <span>{zone.name}</span>
+                      <ArrowRight size={14} aria-hidden="true" />
+                    </button>
+                  </li>
                 ))}
-              </div>
+              </ul>
             </div>
           </motion.div>
         </div>

@@ -11,13 +11,13 @@ import { initializeApp } from 'firebase/app';
 import { getAnalytics, isSupported } from 'firebase/analytics';
 
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyDiDQmXHgvacPLzXkDn2UU3PmOijGCO980',
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'ecotrack-7f805.firebaseapp.com',
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'ecotrack-7f805',
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || 'ecotrack-7f805.firebasestorage.app',
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_ID || '866853150264',
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || '1:866853150264:web:5d08d19925a6b65606d0cd',
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || 'G-CX6E6P3L2W',
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyPlaceholderKeyForStadiumAI2026',
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'stadium-ai-2026.firebaseapp.com',
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'stadium-ai-2026',
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || 'stadium-ai-2026.firebasestorage.app',
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_ID || '000000000000',
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || '1:000000000000:web:0000000000000000000000',
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || 'G-0000000000',
 };
 
 const app = initializeApp(firebaseConfig);
