@@ -43,7 +43,17 @@ logger = logging.getLogger("stadium_ai")
 # Google Gemini AI Configuration
 # ---------------------------------------------------------------------------
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "PLACEHOLDER_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+if not GEMINI_API_KEY:
+    logger.warning(
+        "GEMINI_API_KEY not set. AI features will use fallback responses. "
+        "Set the key in a .env file or as an environment variable."
+    )
+    # Use a dummy key so genai.configure does not raise on import;
+    # actual API calls will fail gracefully via the fallback logic.
+    GEMINI_API_KEY = "NOT_SET"
+
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel("gemini-pro")
 
@@ -54,8 +64,10 @@ model = genai.GenerativeModel("gemini-pro")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Log application startup and shutdown events."""
+    """Manage application startup and shutdown lifecycle events."""
     logger.info("Stadium AI backend starting up...")
+    # Attach the Gemini model to app state for dependency-injection style access
+    app.state.model = model
     yield
     logger.info("Stadium AI backend shutting down.")
 
@@ -68,7 +80,8 @@ app = FastAPI(
     title="Stadium AI Backend",
     description=(
         "Gemini-powered FIFA World Cup 2026 stadium operations API "
-        "for navigation, crowd management, and sustainability."
+        "for navigation, crowd management, sustainability, and "
+        "operational intelligence."
     ),
     version="1.0.0",
     lifespan=lifespan,
@@ -86,6 +99,9 @@ app.middleware("http")(add_security_headers)
 
 # CORS
 configure_cors(app)
+
+# Attach model to state immediately (for TestClient which skips lifespan)
+app.state.model = model
 
 # Routes
 app.include_router(router)

@@ -5,10 +5,10 @@
 
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Map, MapPin, Accessibility, Eye, Users, ArrowRight, Info } from 'lucide-react';
+import { Map, MapPin, Accessibility, Eye, ArrowRight, Info, Sparkles, Navigation } from 'lucide-react';
 import { useVenue } from '../hooks/useVenue';
-import { CROWD_LEVELS } from '../constants';
 import { formatNumber } from '../utils/helpers';
+import { API_BASE_URL, API_ENDPOINTS } from '../constants';
 
 const ZONE_COLORS = {
   seating: '#3b82f6',
@@ -19,6 +19,51 @@ const ZONE_COLORS = {
 
 const Navigator = React.memo(() => {
   const { selectedVenue, selectedZone, showAccessible, selectVenue, selectZone, toggleAccessible, venues, zones } = useVenue();
+  const [startZoneId, setStartZoneId] = React.useState('gate_area');
+  const [directions, setDirections] = React.useState('');
+  const [isNavLoading, setIsNavLoading] = React.useState(false);
+
+  const getDirections = React.useCallback(async () => {
+    if (!selectedZone) return;
+    setIsNavLoading(true);
+    setDirections('');
+    try {
+      const res = await fetch(`${API_BASE_URL}${API_ENDPOINTS.NAVIGATION}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          venue_id: selectedVenue.id,
+          start_zone_id: startZoneId,
+          end_zone_id: selectedZone.id,
+          accessible: showAccessible,
+        }),
+      });
+      if (!res.ok) throw new Error('Server error');
+      const data = await res.json();
+      setDirections(data.directions);
+    } catch {
+      // Local fallback navigation
+      if (startZoneId === selectedZone.id) {
+        setDirections(`You are already at the ${selectedZone.name}. No transit is required.`);
+      } else {
+        const startName = startZoneId.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+        const steps = [
+          `1. Depart from ${startName} and locate the nearest concourse directory map.`,
+          `2. Follow the directional signage towards the ${selectedZone.name} section.`
+        ];
+        if (showAccessible) {
+          steps.push(`3. [Accessibility] Head to Elevator Block B/D, take the elevator to your destination level.`);
+          steps.push(`4. [Accessibility] Use the wide-corridor accessible gates to enter the seating bowl.`);
+        } else {
+          steps.push(`3. Take the main escalators or staircases to the correct concourse tier.`);
+          steps.push(`4. Proceed to the entry gates at the ${selectedZone.name}.`);
+        }
+        setDirections(`Fallback Route at ${selectedVenue.name}:\n` + steps.join('\n'));
+      }
+    } finally {
+      setIsNavLoading(false);
+    }
+  }, [selectedVenue.id, selectedVenue.name, startZoneId, selectedZone, showAccessible]);
 
   return (
     <article className="px-6 md:px-12 lg:px-20 pt-12 pb-24 relative z-10">
@@ -91,7 +136,20 @@ const Navigator = React.memo(() => {
                   const fillColor = ZONE_COLORS[zone.type] || '#94a3b8';
 
                   return (
-                    <g key={zone.id} onClick={() => selectZone(zone.id)} className="cursor-pointer" role="button" tabIndex={0} aria-label={`${zone.name} - ${zone.type} zone`}>
+                    <g
+                      key={zone.id}
+                      onClick={() => selectZone(zone.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          selectZone(zone.id);
+                        }
+                      }}
+                      className="cursor-pointer"
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`${zone.name} - ${zone.type} zone`}
+                    >
                       <rect
                         x={pos.x} y={pos.y} width={pos.w} height={pos.h} rx="8"
                         fill={fillColor} opacity={isSelected ? 0.4 : 0.15}
@@ -130,6 +188,68 @@ const Navigator = React.memo(() => {
                   </div>
                 ))}
               </div>
+            </div>
+
+            {/* AI Wayfinding Guide Section */}
+            <div className="mt-8 pt-6 border-t border-slate-200/50">
+              <div className="flex items-center gap-2 mb-4">
+                <Sparkles size={18} className="text-amber-500" aria-hidden="true" />
+                <h3 className="text-lg font-black text-slate-800 tracking-tight">AI Wayfinding Guide</h3>
+              </div>
+              <p className="text-xs text-slate-400 font-medium mb-4">
+                Get custom AI-generated step-by-step navigation instructions to your selected zone.
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label htmlFor="start-zone-select" className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1.5">
+                    Start Zone
+                  </label>
+                  <select
+                    id="start-zone-select"
+                    value={startZoneId}
+                    onChange={(e) => setStartZoneId(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-white/60 backdrop-blur-md border border-white/50 text-xs font-bold text-slate-700 shadow-sm focus-ring"
+                  >
+                    {zones.map((z) => (
+                      <option key={z.id} value={z.id}>
+                        {z.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1.5">
+                    Destination Zone
+                  </label>
+                  <div className="px-3 py-2 rounded-xl bg-slate-100 border border-slate-200/50 text-xs font-bold text-slate-600 truncate">
+                    🎯 {selectedZone ? selectedZone.name : 'Select destination map zone'}
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={getDirections}
+                disabled={!selectedZone || isNavLoading}
+                className="btn-primary !py-2.5 !px-5 !text-xs disabled:opacity-40"
+              >
+                <Navigation size={14} aria-hidden="true" />
+                {isNavLoading ? 'Calculating route...' : 'Get AI Navigation'}
+              </button>
+
+              {directions && (
+                <div className={`mt-5 p-4 rounded-2xl border bg-white/50 backdrop-blur-md transition-all ${showAccessible ? 'border-blue-200 bg-blue-50/20' : 'border-slate-200/50'}`}>
+                  <div className="flex items-center gap-1.5 mb-2.5">
+                    <Navigation size={12} className="text-slate-500" />
+                    <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider">
+                      Suggested Steps {showAccessible && '• Wheelchair Accessible'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-700 font-medium leading-relaxed whitespace-pre-wrap">
+                    {directions}
+                  </p>
+                </div>
+              )}
             </div>
           </motion.div>
 
@@ -190,7 +310,6 @@ const Navigator = React.memo(() => {
                         ? 'bg-slate-900 text-white shadow-md'
                         : 'text-slate-600 hover:bg-slate-100'
                     }`}
-                    role="listitem"
                   >
                     <span>{zone.name}</span>
                     <ArrowRight size={14} aria-hidden="true" />

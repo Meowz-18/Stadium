@@ -16,6 +16,8 @@ from app.services import (
     VENUES,
     TRANSPORT_FACTORS,
     SUSTAINABILITY_TARGETS,
+    BASE_DISTANCE_KM,
+    WALK_DISTANCE_CAP_KM,
     build_fallback_response,
     get_alert_level,
     get_zone_recommendation,
@@ -23,6 +25,10 @@ from app.services import (
     estimate_routes,
     calculate_sustainability,
     build_assistant_prompt,
+    build_navigation_prompt,
+    build_navigation_fallback,
+    build_operations_prompt,
+    build_operations_fallback,
 )
 from app.schemas import AlertLevel
 
@@ -85,16 +91,21 @@ class TestAssistantEndpoint:
         mock_response = AsyncMock()
         mock_response.text = "Gate B is located on the east side of the stadium."
 
-        with patch("main.model.generate_content_async", return_value=mock_response) as mock_gen:
+        with patch("app.routes._get_model") as mock_get:
+            mock_model = AsyncMock()
+            mock_model.generate_content_async = AsyncMock(return_value=mock_response)
+            mock_get.return_value = mock_model
             res = client.post("/api/assistant", json={"query": "find gate B"})
             assert res.status_code == 200
             assert res.json()["response"] == "Gate B is located on the east side of the stadium."
-            mock_gen.assert_called_once()
 
     def test_gemini_failure_fallback(self):
         """Assistant falls back gracefully when Gemini raises an exception."""
         response_cache._cache.clear()
-        with patch("main.model.generate_content_async", side_effect=Exception("API key error")):
+        with patch("app.routes._get_model") as mock_get:
+            mock_model = AsyncMock()
+            mock_model.generate_content_async = AsyncMock(side_effect=Exception("API key error"))
+            mock_get.return_value = mock_model
             res = client.post("/api/assistant", json={"query": "where to eat food?"})
             assert res.status_code == 200
             body = res.json()["response"].lower()
@@ -108,10 +119,99 @@ class TestAssistantEndpoint:
         second = client.post("/api/assistant", json=query).json()["response"]
         assert first == second
 
+    def test_assistant_role_tailoring(self):
+        """Assistant queries should accept role and generate context-aware prompts."""
+        response_cache._cache.clear()
+        res = client.post("/api/assistant", json={
+            "query": "what is my schedule?",
+            "role": "volunteer",
+        })
+        assert res.status_code == 200
+        assert len(res.json()["response"]) > 0
+
+
+# ---------------------------------------------------------------------------
+# Navigation Endpoint Tests
+# ---------------------------------------------------------------------------
+
+class TestNavigationEndpoint:
+    """Tests for ``POST /api/navigation``."""
+
+    def test_navigation_success_mock(self):
+        """Navigation returns Gemini response when API succeeds."""
+        response_cache._cache.clear()
+        mock_response = AsyncMock()
+        mock_response.text = "Walk past Concourse A, then take the ramp on the left."
+
+        with patch("app.routes._get_model") as mock_get:
+            mock_model = AsyncMock()
+            mock_model.generate_content_async = AsyncMock(return_value=mock_response)
+            mock_get.return_value = mock_model
+            res = client.post("/api/navigation", json={
+                "venue_id": "metlife",
+                "start_zone_id": "gate_area",
+                "end_zone_id": "vip_suites",
+                "accessible": True,
+            })
+            assert res.status_code == 200
+            assert res.json()["directions"] == "Walk past Concourse A, then take the ramp on the left."
+
+    def test_navigation_failure_fallback(self):
+        """Navigation falls back to local routing when Gemini fails."""
+        response_cache._cache.clear()
+        with patch("app.routes._get_model") as mock_get:
+            mock_model = AsyncMock()
+            mock_model.generate_content_async = AsyncMock(side_effect=Exception("Gemini Offline"))
+            mock_get.return_value = mock_model
+            res = client.post("/api/navigation", json={
+                "venue_id": "metlife",
+                "start_zone_id": "gate_area",
+                "end_zone_id": "vip_suites",
+                "accessible": True,
+            })
+            assert res.status_code == 200
+            directions = res.json()["directions"]
+            assert "Fallback" in directions
+            assert "[Accessibility]" in directions
+
+    def test_navigation_same_zone(self):
+        """Navigation returns early if start and end zones are identical."""
+        response_cache._cache.clear()
+        with patch("app.routes._get_model") as mock_get:
+            mock_model = AsyncMock()
+            mock_model.generate_content_async = AsyncMock(side_effect=Exception("offline"))
+            mock_get.return_value = mock_model
+            res = client.post("/api/navigation", json={
+                "venue_id": "metlife",
+                "start_zone_id": "gate_area",
+                "end_zone_id": "gate_area",
+                "accessible": False,
+            })
+            assert res.status_code == 200
+            assert "currently at" in res.json()["directions"]
+
+    def test_navigation_non_accessible(self):
+        """Non-accessible fallback should mention escalators/staircases."""
+        response_cache._cache.clear()
+        with patch("app.routes._get_model") as mock_get:
+            mock_model = AsyncMock()
+            mock_model.generate_content_async = AsyncMock(side_effect=Exception("offline"))
+            mock_get.return_value = mock_model
+            res = client.post("/api/navigation", json={
+                "venue_id": "lusail",
+                "start_zone_id": "north_stand",
+                "end_zone_id": "south_stand",
+                "accessible": False,
+            })
+            assert res.status_code == 200
+            directions = res.json()["directions"]
+            assert "escalator" in directions.lower() or "staircase" in directions.lower()
+
 
 # ---------------------------------------------------------------------------
 # Crowd Endpoint Tests
 # ---------------------------------------------------------------------------
+
 
 class TestCrowdEndpoint:
     """Tests for ``POST /api/crowd``."""
@@ -241,6 +341,105 @@ class TestSustainabilityEndpoint:
 
 
 # ---------------------------------------------------------------------------
+# Operations Endpoint Tests
+# ---------------------------------------------------------------------------
+
+class TestOperationsEndpoint:
+    """Tests for ``POST /api/operations``."""
+
+    def test_operations_success_mock(self):
+        """Operations returns Gemini briefing when API succeeds."""
+        response_cache._cache.clear()
+        mock_response = AsyncMock()
+        mock_response.text = "Situational briefing: All systems nominal."
+
+        with patch("app.routes._get_model") as mock_get:
+            mock_model = AsyncMock()
+            mock_model.generate_content_async = AsyncMock(return_value=mock_response)
+            mock_get.return_value = mock_model
+            res = client.post("/api/operations", json={
+                "venue_id": "metlife",
+                "event_phase": "pre_match",
+                "crowd_density_avg": 40,
+                "critical_zone_count": 0,
+                "weather": "clear",
+            })
+            assert res.status_code == 200
+            data = res.json()
+            assert data["venue_id"] == "metlife"
+            assert "briefing" in data
+            assert data["risk_level"] == "Low"
+
+    def test_operations_failure_fallback(self):
+        """Operations falls back gracefully when Gemini raises."""
+        response_cache._cache.clear()
+        with patch("app.routes._get_model") as mock_get:
+            mock_model = AsyncMock()
+            mock_model.generate_content_async = AsyncMock(side_effect=Exception("API down"))
+            mock_get.return_value = mock_model
+            res = client.post("/api/operations", json={
+                "venue_id": "lusail",
+                "event_phase": "halftime",
+                "crowd_density_avg": 80,
+                "critical_zone_count": 3,
+                "weather": "rain",
+            })
+            assert res.status_code == 200
+            data = res.json()
+            assert data["risk_level"] == "Critical"
+            assert len(data["decision_recommendations"]) == 3
+
+    def test_operations_moderate_risk(self):
+        """Operations with moderate density should report moderate risk."""
+        response_cache._cache.clear()
+        with patch("app.routes._get_model") as mock_get:
+            mock_model = AsyncMock()
+            mock_model.generate_content_async = AsyncMock(side_effect=Exception("offline"))
+            mock_get.return_value = mock_model
+            res = client.post("/api/operations", json={
+                "venue_id": "sofi",
+                "event_phase": "match_live",
+                "crowd_density_avg": 60,
+                "critical_zone_count": 0,
+                "weather": "hot",
+            })
+            assert res.status_code == 200
+            data = res.json()
+            assert data["risk_level"] == "Moderate"
+
+    def test_operations_with_special_notes(self):
+        """Operations should accept and process special_notes field."""
+        response_cache._cache.clear()
+        with patch("app.routes._get_model") as mock_get:
+            mock_model = AsyncMock()
+            mock_model.generate_content_async = AsyncMock(side_effect=Exception("offline"))
+            mock_get.return_value = mock_model
+            res = client.post("/api/operations", json={
+                "venue_id": "azteca",
+                "event_phase": "post_match",
+                "crowd_density_avg": 30,
+                "critical_zone_count": 0,
+                "weather": "clear",
+                "special_notes": "VIP event in progress",
+            })
+            assert res.status_code == 200
+            assert res.json()["venue_id"] == "azteca"
+
+    def test_operations_default_values(self):
+        """Operations should work with all default values."""
+        response_cache._cache.clear()
+        with patch("app.routes._get_model") as mock_get:
+            mock_model = AsyncMock()
+            mock_model.generate_content_async = AsyncMock(side_effect=Exception("offline"))
+            mock_get.return_value = mock_model
+            res = client.post("/api/operations", json={})
+            assert res.status_code == 200
+            data = res.json()
+            assert data["venue_id"] == "lusail"
+            assert data["risk_level"] == "Low"
+
+
+# ---------------------------------------------------------------------------
 # Input Validation Tests
 # ---------------------------------------------------------------------------
 
@@ -276,6 +475,16 @@ class TestInputValidation:
         res = client.post("/api/sustainability", json={"waste_kg": -100})
         assert res.status_code == 422
 
+    def test_operations_density_over_100_rejected(self):
+        """Operations crowd_density_avg over 100 should be rejected with 422."""
+        res = client.post("/api/operations", json={"crowd_density_avg": 150})
+        assert res.status_code == 422
+
+    def test_operations_empty_event_phase_rejected(self):
+        """Operations with empty event_phase should be rejected with 422."""
+        res = client.post("/api/operations", json={"event_phase": ""})
+        assert res.status_code == 422
+
 
 # ---------------------------------------------------------------------------
 # Security & Infrastructure Tests
@@ -292,6 +501,25 @@ class TestSecurityAndInfrastructure:
         assert res.headers.get("referrer-policy") == "strict-origin-when-cross-origin"
         assert res.headers.get("permissions-policy") == "camera=(), microphone=(), geolocation=()"
         assert "no-store" in res.headers.get("cache-control", "")
+
+    def test_security_csp_header(self):
+        """Responses should include Content-Security-Policy header."""
+        res = client.get("/api/health")
+        csp = res.headers.get("content-security-policy", "")
+        assert "default-src" in csp
+        assert "'self'" in csp
+
+    def test_security_hsts_header(self):
+        """Responses should include Strict-Transport-Security header."""
+        res = client.get("/api/health")
+        hsts = res.headers.get("strict-transport-security", "")
+        assert "max-age=" in hsts
+        assert "includeSubDomains" in hsts
+
+    def test_security_xss_protection(self):
+        """Responses should include X-XSS-Protection header."""
+        res = client.get("/api/health")
+        assert res.headers.get("x-xss-protection") == "1; mode=block"
 
     def test_health_endpoint_fields(self):
         """Health endpoint should return all required metadata fields."""
@@ -414,6 +642,16 @@ class TestServiceLayer:
         result = build_fallback_response("something random xyz")
         assert "Stadium AI" in result
 
+    def test_fallback_accessibility(self):
+        """Accessibility keywords should return accessibility info."""
+        result = build_fallback_response("where is the wheelchair entrance?")
+        assert "accessibility" in result.lower() or "wheelchair" in result.lower()
+
+    def test_fallback_sustainability(self):
+        """Sustainability keywords should return green info."""
+        result = build_fallback_response("tell me about recycling")
+        assert "recycle" in result.lower() or "sustain" in result.lower()
+
     def test_prompt_builder_with_venue(self):
         """Prompt builder should include venue context when venue_id is valid."""
         prompt = build_assistant_prompt("hello", "en", "metlife")
@@ -430,3 +668,52 @@ class TestServiceLayer:
         """Prompt builder should include language instruction for non-English."""
         prompt = build_assistant_prompt("hola", "es", None)
         assert "'es'" in prompt
+
+    def test_prompt_builder_role_volunteer(self):
+        """Prompt builder should include volunteer context for volunteer role."""
+        prompt = build_assistant_prompt("schedule", "en", None, role="volunteer")
+        assert "Volunteer" in prompt
+
+    def test_prompt_builder_role_staff(self):
+        """Prompt builder should include staff context for staff role."""
+        prompt = build_assistant_prompt("duties", "en", None, role="staff")
+        assert "Staff" in prompt or "Organizer" in prompt
+
+    def test_operations_prompt_builder(self):
+        """Operations prompt builder should include venue and phase context."""
+        prompt = build_operations_prompt(
+            "metlife", "halftime", 70, 1, "rain",
+            special_notes="VIP guests arriving"
+        )
+        assert "MetLife Stadium" in prompt
+        assert "Halftime" in prompt
+        assert "70%" in prompt
+        assert "rain" in prompt
+        assert "VIP guests arriving" in prompt
+
+    def test_operations_fallback_critical(self):
+        """Operations fallback should return Critical risk with 3+ critical zones."""
+        result = build_operations_fallback("lusail", "match_live", 85, 3)
+        assert result["risk_level"] == "Critical"
+        assert len(result["decision_recommendations"]) == 3
+        assert "briefing" in result
+
+    def test_operations_fallback_low(self):
+        """Operations fallback should return Low risk with low density."""
+        result = build_operations_fallback("lusail", "pre_match", 20, 0)
+        assert result["risk_level"] == "Low"
+
+    def test_named_constants_values(self):
+        """Named constants should have expected values."""
+        assert BASE_DISTANCE_KM == 15.0
+        assert WALK_DISTANCE_CAP_KM == 5.0
+
+    def test_zone_recommendation_critical(self):
+        """Critical density should produce urgent recommendation."""
+        rec = get_zone_recommendation("north_stand", 95)
+        assert "URGENT" in rec
+
+    def test_zone_recommendation_low(self):
+        """Low density should produce normal recommendation."""
+        rec = get_zone_recommendation("north_stand", 30)
+        assert "normally" in rec.lower()

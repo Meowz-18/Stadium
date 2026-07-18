@@ -120,6 +120,12 @@ ZONE_CAPACITIES: dict[str, int] = {
 # Sources: IPCC AR6 WG3 (2023), US EPA GHG Equivalencies
 # ---------------------------------------------------------------------------
 
+BASE_DISTANCE_KM: float = 15.0
+"""Default distance from origin to venue in km when no GPS data available."""
+
+WALK_DISTANCE_CAP_KM: float = 5.0
+"""Maximum distance offered for walking routes."""
+
 TRANSPORT_FACTORS: dict[str, dict] = {
     "metro": {"co2_per_km": 0.033, "avg_speed_kmh": 35, "cost_per_km": 0.12},
     "bus": {"co2_per_km": 0.089, "avg_speed_kmh": 20, "cost_per_km": 0.08},
@@ -250,11 +256,10 @@ def estimate_routes(origin: str, venue_id: str) -> list[dict]:
         List of route options with mode, duration, distance, CO₂, cost.
     """
     venue = VENUES.get(venue_id, VENUES["lusail"])
-    base_distance = 15.0  # Default base distance in km
 
     routes = []
     for mode, factors in TRANSPORT_FACTORS.items():
-        distance = base_distance if mode != "walk" else min(base_distance, 5.0)
+        distance = BASE_DISTANCE_KM if mode != "walk" else min(BASE_DISTANCE_KM, WALK_DISTANCE_CAP_KM)
         duration = round(distance / factors["avg_speed_kmh"] * 60)
         co2 = round(distance * factors["co2_per_km"], 3)
         cost = round(distance * factors["cost_per_km"], 2)
@@ -367,15 +372,17 @@ def calculate_sustainability(
 # AI Prompt Builder
 # ---------------------------------------------------------------------------
 
-def build_assistant_prompt(query: str, language: str, venue_id: str | None) -> str:
+def build_assistant_prompt(query: str, language: str, venue_id: str | None, role: str = "fan") -> str:
     """Build a context-aware prompt for the Gemini AI model.
 
-    Injects venue-specific context when a venue_id is provided.
+    Injects venue-specific context when a venue_id is provided and customizes instructions
+    based on the user's role (fan, volunteer, staff).
 
     Args:
         query: The user's question.
         language: ISO 639-1 language code.
         venue_id: Optional venue identifier.
+        role: The user's role (e.g. fan, volunteer, staff).
 
     Returns:
         A structured prompt string for Gemini.
@@ -396,15 +403,115 @@ def build_assistant_prompt(query: str, language: str, venue_id: str | None) -> s
             "If unsure, respond in English."
         )
 
+    role_instruction = ""
+    if role == "volunteer":
+        role_instruction = (
+            " The user is a Volunteer. Focus on volunteering logistics, shift guidelines, volunteer dining areas, "
+            "helping fans, and how to contact the volunteer coordinator. Keep the tone helpful, professional, and team-oriented."
+        )
+    elif role in ("staff", "organizer"):
+        role_instruction = (
+            " The user is a Stadium Staff / Organizer. Provide details relevant to stadium operations, "
+            "security protocols, crowd-monitoring tasks, safety procedures, and administrative duties. Keep the tone professional, precise, and operational."
+        )
+    else:
+        role_instruction = (
+            " The user is a Fan. Focus on amenities, restroom locations, food concessions, match schedules, "
+            "merchandise shops, public transportation, and general fan experience. Keep the tone enthusiastic, welcoming, and informative."
+        )
+
     return (
         "You are Stadium AI, an intelligent assistant for the FIFA World Cup "
         "2026. You help fans navigate stadiums, find amenities, understand "
         "match schedules, plan transportation, and learn about sustainability "
         "initiatives. Be helpful, concise, and enthusiastic about football. "
         "Provide practical, actionable information."
-        f"{venue_context}{lang_instruction}"
+        f"{venue_context}{role_instruction}{lang_instruction}"
         f" Answer the following query accurately and concisely: {query}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Navigation Prompt Builder & Fallback
+# ---------------------------------------------------------------------------
+
+def build_navigation_prompt(venue_id: str, start_zone_id: str, end_zone_id: str, accessible: bool) -> str:
+    """Build a prompt for the Gemini AI model to generate navigation instructions.
+
+    Args:
+        venue_id: Venue identifier.
+        start_zone_id: Starting zone identifier.
+        end_zone_id: Destination zone identifier.
+        accessible: If true, enforce wheelchair/accessible pathways.
+
+    Returns:
+        Structured prompt string.
+    """
+    venue_name = VENUES.get(venue_id, {}).get("name", "the stadium")
+    start_name = start_zone_id.replace("_", " ").title()
+    end_name = end_zone_id.replace("_", " ").title()
+
+    access_instr = (
+        " Accessibility Mode is ENABLED. The route MUST be fully wheelchair-accessible, "
+        "relying strictly on elevators, ramps, and flat level pathways. Do NOT route "
+        "through stairs, escalators, or narrow turnstiles, and explicitly state that the "
+        "route is accessible."
+        if accessible
+        else " Standard navigation. You may route through stairs, escalators, and regular corridors."
+    )
+
+    return (
+        f"You are Stadium AI Navigation, an assistant for FIFA World Cup 2026. "
+        f"Provide a clear, step-by-step navigation guide from the '{start_name}' to the '{end_name}' "
+        f"at {venue_name}."
+        f"{access_instr}"
+        f" Keep instructions extremely clear, concise (under 4 steps), and direct for a fan or steward."
+    )
+
+
+def build_navigation_fallback(venue_id: str, start_zone_id: str, end_zone_id: str, accessible: bool) -> str:
+    """Generate a high-quality fallback navigation response when Gemini is down.
+
+    Args:
+        venue_id: Venue identifier.
+        start_zone_id: Starting zone identifier.
+        end_zone_id: Destination zone identifier.
+        accessible: If true, enforce wheelchair/accessible pathways.
+
+    Returns:
+        Fallback navigation string.
+    """
+    venue = VENUES.get(venue_id, VENUES["lusail"])
+    start_name = start_zone_id.replace("_", " ").title()
+    end_name = end_zone_id.replace("_", " ").title()
+
+    if start_zone_id == end_zone_id:
+        return f"You are currently at the {start_name}. No transit is required."
+
+    steps = [
+        f"1. Depart from {start_name} and locate the nearest concourse directory map.",
+        f"2. Follow the directional signage towards the {end_name} section."
+    ]
+
+    if accessible:
+        steps.append(
+            "3. [Accessibility] Head to Elevator Block B/D, take the elevator to your destination level."
+        )
+        steps.append(
+            "4. [Accessibility] Use the wide-corridor accessible gates to enter the seating bowl."
+        )
+    else:
+        steps.append(
+            "3. Take the main escalators or staircases to the correct concourse tier."
+        )
+        steps.append(
+            f"4. Proceed to the entry gates at the {end_name}."
+        )
+
+    return (
+        f"Fallback Route at {venue['name']}:\n" + "\n".join(steps)
+    )
+
 
 
 # ---------------------------------------------------------------------------
@@ -423,33 +530,6 @@ def build_fallback_response(user_query: str) -> str:
     Returns:
         A contextually relevant response string.
     """
-    if any(kw in user_query for kw in ("navigate", "find", "where", "map", "direction")):
-        return (
-            "For stadium navigation: Follow the color-coded signage system — "
-            "blue for gates, green for concessions, red for emergency exits. "
-            "Check the overhead LED screens for real-time directions. "
-            "Accessibility routes are marked with yellow floor strips."
-        )
-    if any(kw in user_query for kw in ("crowd", "busy", "wait", "queue", "line")):
-        return (
-            "To avoid crowds: Arrive 90 minutes before kickoff. Use Gates B or D "
-            "which typically have shorter lines. Concession stands on the upper "
-            "concourse are usually less busy. Half-time rush peaks at minutes 46-52."
-        )
-    if any(kw in user_query for kw in ("transport", "bus", "metro", "taxi", "parking")):
-        return (
-            "Transportation options: Metro Line 2 runs directly to the stadium "
-            "(every 5 minutes on match days). Official FIFA shuttles depart from "
-            "City Center every 15 minutes starting 3 hours before kickoff. "
-            "Rideshare drop-off is at Gate E. Parking lots open 4 hours early."
-        )
-    if any(kw in user_query for kw in ("food", "drink", "eat", "restaurant", "concession")):
-        return (
-            "Food & beverages: Concession stands are located on every level. "
-            "Halal, vegetarian, and allergen-free options are available at stands "
-            "marked with green flags. Water refill stations are free and located "
-            "near every restroom block. Mobile ordering is available via the app."
-        )
     if any(kw in user_query for kw in ("accessible", "wheelchair", "disability", "assist")):
         return (
             "Accessibility services: Wheelchair-accessible seating is in Sections "
@@ -464,6 +544,26 @@ def build_fallback_response(user_query: str) -> str:
             "concourse intersection. Single-use plastics are prohibited — beverages "
             "are served in reusable FIFA cups with a refundable deposit."
         )
+    if any(kw in user_query for kw in ("food", "drink", "eat", "restaurant", "concession")):
+        return (
+            "Food & beverages: Concession stands are located on every level. "
+            "Halal, vegetarian, and allergen-free options are available at stands "
+            "marked with green flags. Water refill stations are free and located "
+            "near every restroom block. Mobile ordering is available via the app."
+        )
+    if any(kw in user_query for kw in ("transport", "bus", "metro", "taxi", "parking")):
+        return (
+            "Transportation options: Metro Line 2 runs directly to the stadium "
+            "(every 5 minutes on match days). Official FIFA shuttles depart from "
+            "City Center every 15 minutes starting 3 hours before kickoff. "
+            "Rideshare drop-off is at Gate E. Parking lots open 4 hours early."
+        )
+    if any(kw in user_query for kw in ("crowd", "busy", "wait", "queue", "line")):
+        return (
+            "To avoid crowds: Arrive 90 minutes before kickoff. Use Gates B or D "
+            "which typically have shorter lines. Concession stands on the upper "
+            "concourse are usually less busy. Half-time rush peaks at minutes 46-52."
+        )
     if any(kw in user_query for kw in ("match", "score", "team", "schedule", "kick")):
         return (
             "Match information: Check the giant LED screens for live scores and "
@@ -471,9 +571,121 @@ def build_fallback_response(user_query: str) -> str:
             "16 venues in the USA, Mexico, and Canada. Group stage runs June 11 to "
             "June 29, knockout rounds begin July 1, and the Final is July 19, 2026."
         )
+    if any(kw in user_query for kw in ("navigate", "find", "where", "map", "direction")):
+        return (
+            "For stadium navigation: Follow the color-coded signage system — "
+            "blue for gates, green for concessions, red for emergency exits. "
+            "Check the overhead LED screens for real-time directions. "
+            "Accessibility routes are marked with yellow floor strips."
+        )
     return (
         f"As your Stadium AI assistant, I can help with your question about "
         f"'{user_query}'. I provide information about stadium navigation, "
         f"crowd conditions, transportation, food services, accessibility, "
         f"sustainability, and match schedules. What would you like to know?"
     )
+
+
+# ---------------------------------------------------------------------------
+# Operational Intelligence Prompt Builder & Fallback
+# ---------------------------------------------------------------------------
+
+def build_operations_prompt(
+    venue_id: str,
+    event_phase: str,
+    crowd_density_avg: int,
+    critical_zone_count: int,
+    weather: str,
+    special_notes: str | None = None,
+) -> str:
+    """Build a prompt for the Gemini AI model to generate an operational briefing.
+
+    Produces a comprehensive decision-support briefing covering staffing,
+    emergency preparedness, resource allocation, and crowd flow.
+
+    Args:
+        venue_id: Venue identifier.
+        event_phase: Current event lifecycle phase (e.g. pre_match, halftime).
+        crowd_density_avg: Average crowd density across all zones.
+        critical_zone_count: Number of zones above 90% density.
+        weather: Current weather conditions.
+        special_notes: Optional additional context.
+
+    Returns:
+        Structured prompt string for Gemini.
+    """
+    venue = VENUES.get(venue_id, VENUES["lusail"])
+    phase_label = event_phase.replace("_", " ").title()
+
+    notes_section = ""
+    if special_notes:
+        notes_section = f" Additional context: {special_notes}."
+
+    return (
+        "You are Stadium AI Operations, the real-time decision support system for "
+        "FIFA World Cup 2026 venue staff. Generate a concise operational intelligence "
+        "briefing based on the following venue state:\n"
+        f"- Venue: {venue['name']} in {venue['city']}, {venue['country']} "
+        f"(capacity: {venue['capacity']:,})\n"
+        f"- Event Phase: {phase_label}\n"
+        f"- Average Crowd Density: {crowd_density_avg}%\n"
+        f"- Critical Zones (>90%%): {critical_zone_count}\n"
+        f"- Weather: {weather}\n"
+        f"{notes_section}\n\n"
+        "Provide:\n"
+        "1. A brief situational summary (2-3 sentences)\n"
+        "2. Exactly 3 actionable decision recommendations for venue operations staff\n"
+        "3. A risk level assessment (Low, Moderate, High, Critical)\n\n"
+        "Be specific, practical, and concise. Format as plain text."
+    )
+
+
+def build_operations_fallback(
+    venue_id: str,
+    event_phase: str,
+    crowd_density_avg: int,
+    critical_zone_count: int,
+) -> dict:
+    """Generate a fallback operational briefing when Gemini is unavailable.
+
+    Args:
+        venue_id: Venue identifier.
+        event_phase: Current event lifecycle phase.
+        crowd_density_avg: Average crowd density across all zones.
+        critical_zone_count: Number of zones above 90% density.
+
+    Returns:
+        Dictionary with briefing, recommendations, and risk level.
+    """
+    venue = VENUES.get(venue_id, VENUES["lusail"])
+    phase_label = event_phase.replace("_", " ").title()
+
+    if critical_zone_count > 2:
+        risk = "Critical"
+    elif critical_zone_count > 0 or crowd_density_avg > 75:
+        risk = "High"
+    elif crowd_density_avg > 50:
+        risk = "Moderate"
+    else:
+        risk = "Low"
+
+    briefing = (
+        f"{venue['name']} is currently in {phase_label} phase. "
+        f"Average crowd density stands at {crowd_density_avg}% with "
+        f"{critical_zone_count} zone(s) in critical status. "
+        f"Overall operational risk level: {risk}."
+    )
+
+    recommendations = [
+        f"Deploy additional stewards to the {critical_zone_count} critical zone(s) and activate overflow routing protocols."
+        if critical_zone_count > 0
+        else "Maintain standard steward deployment across all zones; no immediate escalation needed.",
+        "Ensure all emergency exits remain clear and accessible. Verify communication channels with medical and security teams.",
+        "Monitor gate throughput rates and pre-position crowd management resources for the next anticipated surge period.",
+    ]
+
+    return {
+        "briefing": briefing,
+        "decision_recommendations": recommendations,
+        "risk_level": risk,
+    }

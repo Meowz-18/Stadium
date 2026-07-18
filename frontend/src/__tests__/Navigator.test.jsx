@@ -45,4 +45,11 @@ describe('Navigator', () => {
     renderNavigator();
     expect(screen.getByText('All Zones')).toBeInTheDocument();
   });
+
+  it('renders AI Wayfinding Guide section', () => {
+    renderNavigator();
+    expect(screen.getByText('AI Wayfinding Guide')).toBeInTheDocument();
+    expect(screen.getByLabelText(/start zone/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Get AI Navigation/i })).toBeInTheDocument();
+  });
 });

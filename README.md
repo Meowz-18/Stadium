@@ -14,23 +14,26 @@ Built with **Google Gemini AI**, **React 19**, **FastAPI**, and **Firebase**.
 
 ## Features
 
-### 🏟️ Crowd Management Dashboard
+### 🏢 Crowd Management & Operational Intelligence
 - Real-time crowd density monitoring across 8 stadium zones
 - Interactive density sliders with color-coded alert levels (Low → Critical)
 - AI-powered crowd management recommendations via Gemini
+- **AI Operational Briefing**: Dedicated Operational Intelligence panel calling the `/api/operations` endpoint for Real-Time Decision Support (generating risk levels, staffing guides, safety alerts, and contingency protocols)
 - Pie and bar chart visualizations using Recharts
 
-### 🗺️ Venue Navigator
+### 🗺️ Venue Navigator & Accessibility
 - Interactive SVG stadium map with clickable zones
 - Zone details panel with capacity, amenities, and wayfinding info
-- Accessibility mode toggle with wheelchair-accessible routes
+- Accessibility mode toggle generating fully wheelchair-accessible elevator/ramp routes
 - Venue selector for all FIFA 2026 host stadiums
+- Zero ARIA violations on interactive controls (fully compliant list semantics)
 
 ### 🤖 Multilingual AI Assistant
 - Gemini-powered chatbot with venue-aware context
+- Tailored prompt context based on user roles (**Fan, Volunteer, Venue Staff, Organizer**)
 - Support for **10+ languages** (English, Spanish, French, Arabic, Hindi, etc.)
-- Quick-question shortcuts for common stadium queries
-- Fallback responses when API is unavailable
+- Quick-question shortcuts for common stadium and accessibility queries
+- Fallback responses when API is unavailable (intelligently re-ordered by specificity)
 
 ### 🚌 Transport Planner
 - Multi-modal route comparison (Metro, Bus, Shuttle, Rideshare, Walk)
@@ -46,20 +49,11 @@ Built with **Google Gemini AI**, **React 19**, **FastAPI**, and **Firebase**.
 
 ### 🔒 Security
 - XSS prevention via DOMPurify sanitization
-- Content Security Policy (CSP) meta tags
+- Content Security Policy (CSP) headers and meta tags
 - 8 security headers on every API response (X-Content-Type-Options, X-Frame-Options, HSTS, etc.)
 - CORS restricted to specific origins
 - Rate limiting on all API endpoints (slowapi)
-- Pydantic input validation with strict constraints
-
-### ♿ Accessibility
-- WCAG 2.1 AA compliant
-- Skip-to-content navigation link
-- ARIA landmarks, labels, and live regions
-- Keyboard-navigable interactive elements
-- Focus-visible ring styling
-- Screen-reader-friendly SVG map with role="img"
-- Semantic HTML5 structure
+- Pydantic v2 input validation with strict `Annotated` constraints
 
 ---
 
@@ -69,21 +63,21 @@ Built with **Google Gemini AI**, **React 19**, **FastAPI**, and **Firebase**.
 Stadium/
 ├── backend/                 # FastAPI + Gemini AI
 │   ├── app/
-│   │   ├── __init__.py      # Package declaration
-│   │   ├── schemas.py       # Pydantic request/response models
-│   │   ├── services.py      # Business logic, caching, prompts
-│   │   ├── routes.py        # API endpoint handlers
+│   │   ├── __init__.py      # Package declaration & exports
+│   │   ├── schemas.py       # Pydantic v2 request/response models
+│   │   ├── services.py      # Business logic, caching, prompts, fallback
+│   │   ├── routes.py        # API endpoint handlers (request-state model injection)
 │   │   └── middleware.py     # Security headers + CORS
-│   ├── main.py              # App assembly (~90 lines)
-│   └── test_main.py         # 41 backend tests
+│   ├── main.py              # App assembly & startup validations (~90 lines)
+│   └── test_main.py         # 66 backend tests
 ├── frontend/                # React 19 + Vite
 │   ├── src/
 │   │   ├── constants/       # Centralized application data
-│   │   ├── hooks/           # Custom React hooks
+│   │   ├── hooks/           # Custom React hooks with JSDoc annotations
 │   │   ├── components/      # Shared components
 │   │   ├── pages/           # 6 page components
 │   │   ├── utils/           # Pure utility functions
-│   │   └── __tests__/       # 92+ frontend tests
+│   │   └── __tests__/       # 134 frontend tests
 │   ├── vite.config.js       # Build optimization + test config
 │   └── eslint.config.js     # Strict linting rules
 └── .gitignore               # Comprehensive ignore rules
@@ -134,13 +128,13 @@ npm run dev
 
 ## Testing
 
-### Backend (41 tests)
+### Backend (66 tests)
 ```bash
 cd backend
 pytest test_main.py -v
 ```
 
-### Frontend (92+ tests)
+### Frontend (134 tests)
 ```bash
 cd frontend
 npx vitest run
@@ -160,10 +154,11 @@ npx vitest run
 ## Code Quality
 
 - **Modular backend**: Separated into `schemas.py`, `services.py`, `routes.py`, `middleware.py`
+- **Zero Circular Imports**: Clean dependency injection using FastAPI `app.state` context
 - **Centralized constants**: All static data in `constants/index.js`
 - **Strict ESLint**: `eqeqeq`, `prefer-const`, `no-var`, `no-console`
-- **Comprehensive JSDoc**: All functions documented with `@param`, `@returns`
-- **Type-safe API**: Pydantic models with `constr`, `confloat`, `conint`
+- **Comprehensive JSDoc**: All functions and custom hooks documented with `@param`, `@returns`
+- **Type-safe API**: Pydantic v2 schemas using standard `Annotated` types
 - **LRU caching**: Reduces redundant Gemini API calls
 
 ---

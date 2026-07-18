@@ -15,12 +15,16 @@ from slowapi.util import get_remote_address
 from app.schemas import (
     AssistantQuery,
     AssistantResponse,
+    NavigationQuery,
+    NavigationResponse,
     CrowdQuery,
     CrowdResponse,
     TransportQuery,
     TransportResponse,
     SustainabilityInput,
     SustainabilityResponse,
+    OperationsQuery,
+    OperationsResponse,
     HealthResponse,
 )
 from app.services import (
@@ -28,6 +32,10 @@ from app.services import (
     analyze_crowd,
     build_assistant_prompt,
     build_fallback_response,
+    build_navigation_prompt,
+    build_navigation_fallback,
+    build_operations_prompt,
+    build_operations_fallback,
     calculate_sustainability,
     estimate_routes,
 )
@@ -43,19 +51,31 @@ limiter = Limiter(key_func=get_remote_address)
 router = APIRouter(prefix="/api", tags=["Stadium AI"])
 
 
+def _get_model(request: Request):
+    """Retrieve the Gemini model from application state.
+
+    Args:
+        request: The incoming HTTP request.
+
+    Returns:
+        The configured GenerativeModel instance.
+    """
+    return request.app.state.model
+
+
 @router.post("/assistant", response_model=AssistantResponse)
 @limiter.limit("20/minute")
 async def chat_assistant(request: Request, body: AssistantQuery):
     """Multilingual AI Assistant endpoint using Gemini for stadium queries.
 
     Checks the LRU cache first. On cache miss, builds a context-aware
-    prompt (optionally injecting venue data) and calls the Gemini API.
+    prompt (optionally injecting venue data and role) and calls the Gemini API.
     Falls back to keyword-matched local responses on API failure.
     """
-    from main import model  # lazy import to avoid circular dependency
+    model = _get_model(request)
 
     cache_key = hashlib.sha256(
-        f"{body.query.lower()}:{body.language}:{body.venue_id}".encode()
+        f"{body.query.lower()}:{body.language}:{body.venue_id}:{body.role}".encode()
     ).hexdigest()
 
     cached = response_cache.get(cache_key)
@@ -65,7 +85,7 @@ async def chat_assistant(request: Request, body: AssistantQuery):
 
     try:
         prompt = build_assistant_prompt(
-            body.query, body.language, body.venue_id
+            body.query, body.language, body.venue_id, body.role
         )
         response = await model.generate_content_async(prompt)
         answer = response.text
@@ -82,6 +102,46 @@ async def chat_assistant(request: Request, body: AssistantQuery):
         return {"response": fallback, "detected_language": body.language}
 
 
+@router.post("/navigation", response_model=NavigationResponse)
+@limiter.limit("20/minute")
+async def navigate_zones(request: Request, body: NavigationQuery):
+    """Generate step-by-step navigation instructions using Gemini AI.
+
+    If accessibility mode is enabled, routes the user through accessible pathways.
+    """
+    model = _get_model(request)
+
+    cache_key = hashlib.sha256(
+        f"{body.venue_id}:{body.start_zone_id}:{body.end_zone_id}:{body.accessible}".encode()
+    ).hexdigest()
+
+    cached = response_cache.get(cache_key)
+    if cached:
+        logger.info("Cache hit for navigation hash: %s", cache_key)
+        return {"directions": cached}
+
+    try:
+        prompt = build_navigation_prompt(
+            body.venue_id, body.start_zone_id, body.end_zone_id, body.accessible
+        )
+        response = await model.generate_content_async(prompt)
+        directions = response.text
+        response_cache.put(cache_key, directions)
+        logger.info("Gemini navigation generated for hash: %s", cache_key)
+        return {"directions": directions}
+
+    except Exception as exc:
+        logger.warning(
+            "Gemini API unavailable for navigation, using fallback. Error: %s", str(exc)
+        )
+        fallback = build_navigation_fallback(
+            body.venue_id, body.start_zone_id, body.end_zone_id, body.accessible
+        )
+        response_cache.put(cache_key, fallback)
+        return {"directions": fallback}
+
+
+
 @router.post("/crowd", response_model=CrowdResponse)
 @limiter.limit("30/minute")
 async def analyze_crowd_density(request: Request, body: CrowdQuery):
@@ -90,7 +150,7 @@ async def analyze_crowd_density(request: Request, body: CrowdQuery):
     Delegates zone analysis to the service layer and optionally
     enriches recommendations with Gemini AI insights.
     """
-    from main import model
+    model = _get_model(request)
 
     zones_data = [z.model_dump() for z in body.zones]
     result = analyze_crowd(body.venue_id, zones_data)
@@ -137,7 +197,7 @@ async def plan_transport(request: Request, body: TransportQuery):
     Returns multi-modal route options with CO₂ estimates and
     AI-generated recommendations.
     """
-    from main import model
+    model = _get_model(request)
 
     routes = estimate_routes(body.origin, body.venue_id)
 
@@ -180,7 +240,7 @@ async def assess_sustainability(request: Request, body: SustainabilityInput):
     Delegates scoring to the service layer and enriches with
     Gemini AI recommendations.
     """
-    from main import model
+    model = _get_model(request)
 
     result = calculate_sustainability(
         venue_id=body.venue_id,
@@ -212,6 +272,84 @@ async def assess_sustainability(request: Request, body: SustainabilityInput):
         )
 
     return result
+
+
+@router.post("/operations", response_model=OperationsResponse)
+@limiter.limit("20/minute")
+async def operational_briefing(request: Request, body: OperationsQuery):
+    """Generate an AI-powered operational intelligence briefing.
+
+    Provides real-time decision support for venue staff by analyzing
+    current crowd conditions, event phase, and weather to produce
+    actionable recommendations and a risk-level assessment.
+    """
+    model = _get_model(request)
+
+    cache_key = hashlib.sha256(
+        f"ops:{body.venue_id}:{body.event_phase}:{body.crowd_density_avg}"
+        f":{body.critical_zone_count}:{body.weather}".encode()
+    ).hexdigest()
+
+    cached_briefing = response_cache.get(cache_key)
+    if cached_briefing:
+        logger.info("Cache hit for operations hash: %s", cache_key)
+        # Reparse cached fallback structure
+        fallback = build_operations_fallback(
+            body.venue_id, body.event_phase,
+            body.crowd_density_avg, body.critical_zone_count,
+        )
+        return {
+            "venue_id": body.venue_id,
+            "event_phase": body.event_phase,
+            "briefing": cached_briefing,
+            "decision_recommendations": fallback["decision_recommendations"],
+            "risk_level": fallback["risk_level"],
+        }
+
+    try:
+        prompt = build_operations_prompt(
+            body.venue_id, body.event_phase,
+            body.crowd_density_avg, body.critical_zone_count,
+            body.weather, body.special_notes,
+        )
+        response = await model.generate_content_async(prompt)
+        briefing_text = response.text
+        response_cache.put(cache_key, briefing_text)
+
+        # Extract risk level from AI response, default to heuristic
+        risk = "Low"
+        if body.critical_zone_count > 2:
+            risk = "Critical"
+        elif body.critical_zone_count > 0 or body.crowd_density_avg > 75:
+            risk = "High"
+        elif body.crowd_density_avg > 50:
+            risk = "Moderate"
+
+        logger.info("Gemini operations briefing generated for hash: %s", cache_key)
+        return {
+            "venue_id": body.venue_id,
+            "event_phase": body.event_phase,
+            "briefing": briefing_text,
+            "decision_recommendations": [
+                "See full AI briefing above for detailed recommendations."
+            ],
+            "risk_level": risk,
+        }
+
+    except Exception as exc:
+        logger.warning(
+            "Gemini API unavailable for operations, using fallback. Error: %s", str(exc)
+        )
+        fallback = build_operations_fallback(
+            body.venue_id, body.event_phase,
+            body.crowd_density_avg, body.critical_zone_count,
+        )
+        response_cache.put(cache_key, fallback["briefing"])
+        return {
+            "venue_id": body.venue_id,
+            "event_phase": body.event_phase,
+            **fallback,
+        }
 
 
 @router.get("/health", response_model=HealthResponse)

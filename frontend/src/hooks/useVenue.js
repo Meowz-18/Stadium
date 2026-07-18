@@ -9,8 +9,32 @@ import { VENUES, STADIUM_ZONES } from '../constants';
 const STORAGE_KEY = 'stadium_ai_venue';
 
 /**
- * Hook for managing venue selection and zone navigation.
- * @returns {Object} Venue state and actions.
+ * @typedef {Object} Venue
+ * @property {string} id - Unique venue identifier.
+ * @property {string} name - Venue display name.
+ * @property {string} city - Host city.
+ * @property {string} country - Host country.
+ * @property {number} capacity - Seating capacity.
+ * @property {string} emoji - Visual emoji identifier.
+ */
+
+/**
+ * Hook for managing venue selection and zone navigation state.
+ *
+ * Persists the selected venue preference in localStorage so it
+ * survives page reloads. Provides zone selection and accessibility
+ * toggle controls.
+ *
+ * @returns {{
+ *   selectedVenue: Venue,
+ *   selectedZone: Object|null,
+ *   showAccessible: boolean,
+ *   selectVenue: (venueId: string) => void,
+ *   selectZone: (zoneId: string) => void,
+ *   toggleAccessible: () => void,
+ *   venues: Venue[],
+ *   zones: Object[]
+ * }} Venue state and actions.
  */
 export const useVenue = () => {
   const [selectedVenue, setSelectedVenue] = useState(() => {

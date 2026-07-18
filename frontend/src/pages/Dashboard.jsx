@@ -1,18 +1,32 @@
 /**
  * @file Crowd management dashboard for Stadium AI.
- * Zone density monitoring, alert levels, charts, and AI recommendations.
+ * Zone density monitoring, alert levels, charts, AI recommendations,
+ * and operational intelligence briefings for real-time decision support.
  */
 
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
-import { LayoutDashboard, AlertTriangle, Users, Activity, Zap, RefreshCw } from 'lucide-react';
+import { LayoutDashboard, AlertTriangle, Users, Activity, Zap, RefreshCw, Shield, BrainCircuit } from 'lucide-react';
 import { useCrowd } from '../hooks/useCrowd';
-import { CROWD_LEVELS, VENUES } from '../constants';
+import { CROWD_LEVELS, VENUES, API_BASE_URL, API_ENDPOINTS } from '../constants';
 import { formatNumber } from '../utils/helpers';
+
+/**
+ * Risk level badge color mappings for operational briefings.
+ * @type {Object.<string, string>}
+ */
+const RISK_COLORS = {
+  Low: 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20',
+  Moderate: 'bg-amber-500/10 text-amber-700 border-amber-500/20',
+  High: 'bg-orange-500/10 text-orange-700 border-orange-500/20',
+  Critical: 'bg-red-500/10 text-red-700 border-red-500/20',
+};
 
 const Dashboard = React.memo(() => {
   const { zones, analysis, isLoading, venueId, setVenueId, updateZoneDensity, analyzeCrowd, resetZones } = useCrowd();
+  const [opsBriefing, setOpsBriefing] = useState(null);
+  const [opsLoading, setOpsLoading] = useState(false);
 
   const pieData = zones.filter((z) => z.density > 0).map((z) => ({
     name: z.name,
@@ -21,6 +35,54 @@ const Dashboard = React.memo(() => {
   }));
 
   const barData = zones.map((z) => ({ name: z.name.replace(' ', '\n'), density: z.density }));
+
+  /**
+   * Fetch an AI-powered operational intelligence briefing.
+   * Calls the /api/operations endpoint with current zone data and
+   * falls back to a local briefing if the server is unavailable.
+   */
+  const fetchOpsBriefing = useCallback(async () => {
+    setOpsLoading(true);
+    const avgDensity = zones.length > 0
+      ? Math.round(zones.reduce((sum, z) => sum + z.density, 0) / zones.length)
+      : 0;
+    const criticalCount = zones.filter((z) => z.density > 90).length;
+
+    try {
+      const res = await fetch(`${API_BASE_URL}${API_ENDPOINTS.OPERATIONS}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          venue_id: venueId,
+          event_phase: 'match_live',
+          crowd_density_avg: avgDensity,
+          critical_zone_count: criticalCount,
+          weather: 'clear',
+        }),
+      });
+      if (!res.ok) throw new Error('Server error');
+      setOpsBriefing(await res.json());
+    } catch {
+      // Local fallback briefing
+      const risk = criticalCount > 2 ? 'Critical' : criticalCount > 0 || avgDensity > 75 ? 'High' : avgDensity > 50 ? 'Moderate' : 'Low';
+      const venue = VENUES.find((v) => v.id === venueId) || VENUES[0];
+      setOpsBriefing({
+        venue_id: venueId,
+        event_phase: 'match_live',
+        briefing: `${venue.name} is currently in Match Live phase. Average crowd density stands at ${avgDensity}% with ${criticalCount} zone(s) in critical status. Overall operational risk level: ${risk}.`,
+        decision_recommendations: [
+          criticalCount > 0
+            ? `Deploy additional stewards to the ${criticalCount} critical zone(s) and activate overflow routing protocols.`
+            : 'Maintain standard steward deployment across all zones; no immediate escalation needed.',
+          'Ensure all emergency exits remain clear and accessible. Verify communication channels with medical and security teams.',
+          'Monitor gate throughput rates and pre-position crowd management resources for the next anticipated surge period.',
+        ],
+        risk_level: risk,
+      });
+    } finally {
+      setOpsLoading(false);
+    }
+  }, [zones, venueId]);
 
   return (
     <article className="px-6 md:px-12 lg:px-20 pt-12 pb-24 relative z-10">
@@ -33,7 +95,7 @@ const Dashboard = React.memo(() => {
             </div>
             <h1 className="text-4xl font-black text-slate-900 tracking-tight">Crowd Dashboard</h1>
           </div>
-          <p className="text-slate-500 font-medium">Real-time crowd density monitoring with AI-powered operational recommendations.</p>
+          <p className="text-slate-500 font-medium">Real-time crowd density monitoring with AI-powered operational recommendations and decision support.</p>
         </motion.div>
 
         {/* Venue Selector + Actions */}
@@ -52,6 +114,10 @@ const Dashboard = React.memo(() => {
           <button onClick={analyzeCrowd} disabled={isLoading} className="btn-primary !py-2.5 !px-6 disabled:opacity-50">
             <Activity size={16} aria-hidden="true" />
             {isLoading ? 'Analyzing...' : 'Analyze Crowd'}
+          </button>
+          <button onClick={fetchOpsBriefing} disabled={opsLoading} className="btn-secondary !py-2.5 !px-6 disabled:opacity-50">
+            <BrainCircuit size={16} aria-hidden="true" />
+            {opsLoading ? 'Generating...' : 'AI Ops Briefing'}
           </button>
           <button onClick={resetZones} className="btn-secondary !py-2.5 !px-6">
             <RefreshCw size={16} aria-hidden="true" />
@@ -145,7 +211,7 @@ const Dashboard = React.memo(() => {
         {/* AI Analysis Results */}
         {analysis && (
           <motion.section
-            className="premium-card p-8 md:p-10"
+            className="premium-card p-8 md:p-10 mb-10"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.4 }}
@@ -177,6 +243,66 @@ const Dashboard = React.memo(() => {
             <div className="p-5 bg-white/40 backdrop-blur-md rounded-2xl border border-white/50 shadow-sm">
               <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-2">AI Recommendation</p>
               <p className="text-slate-700 font-medium leading-relaxed text-sm">{analysis.ai_recommendation}</p>
+            </div>
+          </motion.section>
+        )}
+
+        {/* AI Operational Intelligence Briefing */}
+        {opsBriefing && (
+          <motion.section
+            className="premium-card p-8 md:p-10"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.45 }}
+            aria-labelledby="ops-briefing-heading"
+          >
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 rounded-xl bg-violet-500/10 flex items-center justify-center border border-violet-500/20 shadow-sm">
+                <Shield size={20} className="text-violet-700" aria-hidden="true" />
+              </div>
+              <div>
+                <h2 id="ops-briefing-heading" className="text-xl font-black text-slate-800 tracking-tight">AI Operational Briefing</h2>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Real-Time Decision Support • Operational Intelligence</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+              <div className="stat-card text-center">
+                <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">Risk Level</p>
+                <span className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-black border uppercase ${RISK_COLORS[opsBriefing.risk_level] || ''}`}>
+                  {opsBriefing.risk_level === 'Critical' || opsBriefing.risk_level === 'High'
+                    ? <AlertTriangle size={14} aria-hidden="true" />
+                    : <Shield size={14} aria-hidden="true" />}
+                  {opsBriefing.risk_level}
+                </span>
+              </div>
+              <div className="stat-card text-center">
+                <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">Event Phase</p>
+                <p className="text-lg font-black text-slate-900 capitalize">{opsBriefing.event_phase.replace('_', ' ')}</p>
+              </div>
+              <div className="stat-card text-center md:col-span-2">
+                <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">Venue</p>
+                <p className="text-lg font-black text-slate-900">{VENUES.find((v) => v.id === opsBriefing.venue_id)?.name || opsBriefing.venue_id}</p>
+              </div>
+            </div>
+
+            <div className="p-5 bg-white/40 backdrop-blur-md rounded-2xl border border-white/50 shadow-sm mb-5">
+              <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-2">Situational Briefing</p>
+              <p className="text-slate-700 font-medium leading-relaxed text-sm whitespace-pre-wrap">{opsBriefing.briefing}</p>
+            </div>
+
+            <div className="p-5 bg-white/40 backdrop-blur-md rounded-2xl border border-white/50 shadow-sm">
+              <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-3">Decision Recommendations</p>
+              <ul className="space-y-2.5" aria-label="Operational decision recommendations">
+                {opsBriefing.decision_recommendations.map((rec, i) => (
+                  <li key={i} className="flex items-start gap-3 text-sm text-slate-700 font-medium leading-relaxed">
+                    <span className="flex-shrink-0 w-6 h-6 rounded-full bg-violet-500/10 text-violet-700 flex items-center justify-center text-xs font-black border border-violet-500/20">
+                      {i + 1}
+                    </span>
+                    {rec}
+                  </li>
+                ))}
+              </ul>
             </div>
           </motion.section>
         )}

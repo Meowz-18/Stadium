@@ -10,7 +10,7 @@ import { useChat } from '../hooks/useChat';
 import { QUICK_QUESTIONS, SUPPORTED_LANGUAGES, VENUES } from '../constants';
 
 const Assistant = React.memo(() => {
-  const { messages, isLoading, language, venueId, setLanguage, setVenueId, sendMessage, clearMessages } = useChat();
+  const { messages, isLoading, language, venueId, role, setLanguage, setVenueId, setRole, sendMessage, clearMessages } = useChat();
   const [input, setInput] = useState('');
   const chatEndRef = useRef(null);
 
@@ -74,6 +74,20 @@ const Assistant = React.memo(() => {
               {VENUES.map((v) => (
                 <option key={v.id} value={v.id}>{v.emoji} {v.name}</option>
               ))}
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <label htmlFor="role-select" className="sr-only">Select your role</label>
+            <select
+              id="role-select"
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              className="px-3 py-2 rounded-xl bg-white/60 backdrop-blur-md border border-white/50 text-sm font-bold text-slate-700 shadow-sm focus-ring"
+            >
+              <option value="fan">⚽ Fan</option>
+              <option value="volunteer">🙋 Volunteer</option>
+              <option value="staff">💼 Venue Staff</option>
+              <option value="organizer">📋 Organizer</option>
             </select>
           </div>
           {messages.length > 0 && (

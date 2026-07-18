@@ -35,6 +35,17 @@ describe('useChat', () => {
     expect(result.current.venueId).toBe('metlife');
   });
 
+  it('defaults role to fan', () => {
+    const { result } = renderHook(() => useChat());
+    expect(result.current.role).toBe('fan');
+  });
+
+  it('updates role', () => {
+    const { result } = renderHook(() => useChat());
+    act(() => { result.current.setRole('volunteer'); });
+    expect(result.current.role).toBe('volunteer');
+  });
+
   it('adds user message immediately on send', async () => {
     global.fetch.mockResolvedValueOnce({
       ok: true,

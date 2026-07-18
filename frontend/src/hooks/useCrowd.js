@@ -7,8 +7,43 @@ import { useState, useCallback } from 'react';
 import { API_BASE_URL, API_ENDPOINTS, STADIUM_ZONES } from '../constants';
 
 /**
- * Hook for managing crowd density data.
- * @returns {Object} Crowd state and actions.
+ * @typedef {Object} ZoneState
+ * @property {string} id - Zone identifier.
+ * @property {string} name - Human-readable zone name.
+ * @property {number} capacity - Maximum capacity.
+ * @property {string} type - Zone type (seating, vip, concourse, entry).
+ * @property {number} density - Current density percentage (0-100).
+ * @property {number} count - Current occupant count.
+ */
+
+/**
+ * @typedef {Object} CrowdAnalysis
+ * @property {string} venue_id - Venue identifier.
+ * @property {number} total_occupancy - Sum of all zone counts.
+ * @property {number} capacity - Total venue capacity.
+ * @property {string} overall_alert - Highest alert level across zones.
+ * @property {Array} zones - Per-zone analysis results.
+ * @property {string} ai_recommendation - AI-generated recommendation text.
+ */
+
+/**
+ * Hook for managing crowd density data, zone analysis, and API communication.
+ *
+ * Initializes all stadium zones with zero density, provides controls to
+ * update individual zone densities, and submits data to the /api/crowd
+ * endpoint for AI-powered analysis. Falls back to local analysis when
+ * the backend is unavailable.
+ *
+ * @returns {{
+ *   zones: ZoneState[],
+ *   analysis: CrowdAnalysis|null,
+ *   isLoading: boolean,
+ *   venueId: string,
+ *   setVenueId: Function,
+ *   updateZoneDensity: (zoneId: string, density: number) => void,
+ *   analyzeCrowd: () => Promise<void>,
+ *   resetZones: () => void
+ * }} Crowd state and actions.
  */
 export const useCrowd = () => {
   const [zones, setZones] = useState(() =>

@@ -24,6 +24,7 @@ export const useChat = () => {
   const [error, setError] = useState(null);
   const [language, setLanguage] = useState('en');
   const [venueId, setVenueId] = useState('lusail');
+  const [role, setRole] = useState('fan');
   const abortRef = useRef(null);
 
   const sendMessage = useCallback(async (query) => {
@@ -43,7 +44,7 @@ export const useChat = () => {
       const res = await fetch(`${API_BASE_URL}${API_ENDPOINTS.ASSISTANT}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: sanitized, language, venue_id: venueId }),
+        body: JSON.stringify({ query: sanitized, language, venue_id: venueId, role }),
         signal: controller.signal,
       });
 
@@ -66,7 +67,7 @@ export const useChat = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [language, venueId]);
+  }, [language, venueId, role]);
 
   const clearMessages = useCallback(() => {
     setMessages([]);
@@ -79,8 +80,10 @@ export const useChat = () => {
     error,
     language,
     venueId,
+    role,
     setLanguage,
     setVenueId,
+    setRole,
     sendMessage,
     clearMessages,
   };

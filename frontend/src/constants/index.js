@@ -19,9 +19,11 @@ export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:80
 
 export const API_ENDPOINTS = Object.freeze({
   ASSISTANT: '/api/assistant',
+  NAVIGATION: '/api/navigation',
   CROWD: '/api/crowd',
   TRANSPORT: '/api/transport',
   SUSTAINABILITY: '/api/sustainability',
+  OPERATIONS: '/api/operations',
   HEALTH: '/api/health',
 });
 
@@ -110,6 +112,7 @@ export const QUICK_QUESTIONS = Object.freeze([
   'Where is the accessibility entrance?',
   'What\'s the match schedule today?',
   'How do I get to the stadium by metro?',
+  'What wheelchair-accessible services are available?',
 ]);
 
 // ---------------------------------------------------------------------------
